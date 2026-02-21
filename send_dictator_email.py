@@ -103,11 +103,20 @@ def generate_email_content() -> dict:
 # GENERATE MAP
 # ---------------------------------------------------------------------------
 def generate_continent_map(country_name: str, continent: str) -> bytes:
-    """
-    Returns PNG bytes of a continent map with the target country highlighted.
-    Uses Natural Earth data bundled with geopandas.
-    """
-    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
+    import urllib.request
+    import zipfile
+    import tempfile
+
+    url = "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip"
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "ne.zip")
+        urllib.request.urlretrieve(url, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as z:
+            z.extractall(tmpdir)
+        
+        shp_path = os.path.join(tmpdir, "ne_110m_admin_0_countries.shp")
+        world = gpd.read_file(shp_path)
 
     continent_map = {
         "North America": "North America",
@@ -119,16 +128,15 @@ def generate_continent_map(country_name: str, continent: str) -> bytes:
     }
     gpd_continent = continent_map.get(continent, continent)
 
-    continent_gdf = world[world["continent"] == gpd_continent].copy()
+    continent_gdf = world[world["CONTINENT"] == gpd_continent].copy()
 
-    # Match country name flexibly
-    continent_gdf["_match"] = continent_gdf["name"].apply(
+    continent_gdf["_match"] = continent_gdf["NAME"].apply(
         lambda n: country_name.lower() in n.lower() or n.lower() in country_name.lower()
     )
     matched = continent_gdf["_match"]
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.set_facecolor("#d6eaf8")  # Ocean blue
+    ax.set_facecolor("#d6eaf8")
     fig.patch.set_facecolor("#f9f5f0")
 
     continent_gdf[~matched].plot(
