@@ -163,7 +163,7 @@ def generate_continent_map(country_name: str, continent: str) -> bytes:
 # ---------------------------------------------------------------------------
 def send_email(data: dict, map_png: bytes):
     today = date.today().strftime("%B %d, %Y")
-    subject = f"{data['ruler_name']} — {today}"
+    subject = f"Dictator of the Day — {today}"
 
     html_content = data["html"]
     wikipedia_url = data.get("wikipedia_url", "")
