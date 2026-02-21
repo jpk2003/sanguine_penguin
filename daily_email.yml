@@ -1,0 +1,34 @@
+name: Dictator of the Day
+
+on:
+  schedule:
+    # Runs at 7:00 AM Pacific (15:00 UTC) every day
+    # Adjust the hour to your preference: https://crontab.guru
+    - cron: '0 15 * * *'
+
+  # Lets you trigger manually from the GitHub Actions tab (great for testing)
+  workflow_dispatch:
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Send Dictator of the Day email
+        env:
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_ADDRESS:        ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD:   ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL:      ${{ secrets.RECIPIENT_EMAIL }}
+        run: python send_dictator_email.py
