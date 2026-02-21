@@ -5,7 +5,7 @@ on:
     # Runs at 7:00 AM Pacific (15:00 UTC) every day
     # Adjust the hour to your preference: https://crontab.guru
     - cron: '0 15 * * *'
-
+  
   # Lets you trigger manually from the GitHub Actions tab (great for testing)
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install anthropic
+        run: pip install anthropic geopandas matplotlib
 
       - name: Send Dictator of the Day email
         env:
