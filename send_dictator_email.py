@@ -40,6 +40,7 @@ people did — you're illuminating how strange, human, and absurd power can be.
 
 Format your response as a JSON object with these exact keys:
 {
+  "ruler_name": "just the ruler's name, e.g. 'Francisco Macías Nguema'",
   "country": "exact modern country name as it appears in world geographic data (e.g. 'Equatorial Guinea', 'North Korea')",
   "continent": "one of: Africa, Asia, Europe, North America, South America, Oceania",
   "wikipedia_url": "the Wikipedia URL for this specific ruler (e.g. https://en.wikipedia.org/wiki/Francisco_Maci%C3%A1s_Nguema)",
@@ -154,7 +155,7 @@ def generate_continent_map(country_name: str, continent: str) -> bytes:
 # ---------------------------------------------------------------------------
 def send_email(data: dict, map_png: bytes):
     today = date.today().strftime("%B %d, %Y")
-    subject = f"Dictator of the Day — {today}"
+    subject = f"{data['ruler_name']} — {today}"
 
     html_content = data["html"]
     wikipedia_url = data.get("wikipedia_url", "")
@@ -208,7 +209,7 @@ def send_email(data: dict, map_png: bytes):
 
     msg = MIMEMultipart("related")
     msg["Subject"] = subject
-    msg["From"]    = GMAIL_ADDRESS
+    msg["From"] = f"Dictator of the Day <{GMAIL_ADDRESS}>"
     msg["To"]      = RECIPIENT_EMAIL
 
     msg.attach(MIMEText(full_html, "html"))
