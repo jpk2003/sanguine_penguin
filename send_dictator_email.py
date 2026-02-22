@@ -2,6 +2,7 @@
 """
 Dictator of the Day - Daily email about history's most fascinating authoritarian rulers.
 Calls the Anthropic API to generate content, generates a continent map, sends via Gmail.
+Tracks sent dictators in sent_dictators.json in the repo to avoid repeats.
 """
 
 import anthropic
@@ -9,6 +10,11 @@ import smtplib
 import os
 import json
 import io
+import base64
+import urllib.request
+import urllib.error
+import zipfile
+import tempfile
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend for server use
 import matplotlib.pyplot as plt
@@ -19,12 +25,60 @@ from email.mime.image import MIMEImage
 from datetime import date
 
 # ---------------------------------------------------------------------------
-# CONFIGURATION — set these as GitHub Actions secrets
+# CONFIGURATION — set these as GitHub Actions secrets / env vars
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
 GMAIL_ADDRESS      = os.environ["GMAIL_ADDRESS"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 RECIPIENT_EMAIL    = os.environ.get("RECIPIENT_EMAIL", GMAIL_ADDRESS)
+GITHUB_REPO        = os.environ["GITHUB_REPOSITORY"]   # auto-provided by Actions
+GITHUB_TOKEN       = os.environ["GITHUB_TOKEN"]         # auto-provided by Actions
+
+
+# ---------------------------------------------------------------------------
+# SENT DICTATORS — read and write via GitHub API
+# ---------------------------------------------------------------------------
+def get_sent_dictators() -> tuple[list, str | None]:
+    """Fetch the sent_dictators.json file from the repo. Returns (list, sha)."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/sent_dictators.json"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json"
+    })
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+            content = json.loads(base64.b64decode(data["content"]).decode())
+            return content.get("sent", []), data["sha"]
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return [], None  # File doesn't exist yet — first run
+        raise
+
+
+def save_sent_dictators(sent: list, sha: str | None):
+    """Write the updated sent list back to the repo."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/sent_dictators.json"
+    content = base64.b64encode(json.dumps({"sent": sent}, indent=2).encode()).decode()
+    payload = {
+        "message": f"Add dictator from {date.today().isoformat()}",
+        "content": content,
+    }
+    if sha:
+        payload["sha"] = sha  # Required when updating an existing file
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json"
+        },
+        method="PUT"
+    )
+    with urllib.request.urlopen(req) as resp:
+        resp.read()
 
 
 # ---------------------------------------------------------------------------
@@ -70,32 +124,34 @@ Rules:
 - Vary your picks widely: geography, era, gender, style of authoritarianism
 - Prioritize specific, verifiable facts over vague claims
 - Roughly 1 in 3 should be genuinely obscure (Obscurity Rating 6+)
-- Don't repeat leaders (though you have no memory of past emails, just avoid the obvious ones)
 - Keep the HTML content under 400 words
 - Return ONLY the raw JSON object — no markdown, no code blocks, no preamble"""
 
-USER_PROMPT = f"""Today is {date.today().strftime('%A, %B %d, %Y')}. 
-Write today's Dictator of the Day email. Pick whoever you find most interesting today."""
+USER_PROMPT = f"Today is {date.today().strftime('%A, %B %d, %Y')}. Write today's Dictator of the Day email. Pick whoever you find most interesting today."
 
 
 # ---------------------------------------------------------------------------
 # GENERATE CONTENT
 # ---------------------------------------------------------------------------
-def generate_email_content() -> dict:
+def generate_email_content(sent: list) -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    
+
+    exclusion = (
+        f"\n\nThe following rulers have already been featured — do NOT pick any of them:\n{json.dumps(sent, indent=2)}"
+        if sent else ""
+    )
+
     message = client.messages.create(
         model="claude-opus-4-6",
         max_tokens=1024,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": USER_PROMPT}]
+        messages=[{"role": "user", "content": USER_PROMPT + exclusion}]
     )
-    
+
     raw = message.content[0].text.strip()
-    # Strip markdown code fences if Claude adds them anyway
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    
+
     return json.loads(raw)
 
 
@@ -103,18 +159,14 @@ def generate_email_content() -> dict:
 # GENERATE MAP
 # ---------------------------------------------------------------------------
 def generate_continent_map(country_name: str, continent: str) -> bytes:
-    import urllib.request
-    import zipfile
-    import tempfile
-
+    """Download Natural Earth data and render a continent map with the country highlighted."""
     url = "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip"
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = os.path.join(tmpdir, "ne.zip")
         urllib.request.urlretrieve(url, zip_path)
         with zipfile.ZipFile(zip_path, "r") as z:
             z.extractall(tmpdir)
-        
         shp_path = os.path.join(tmpdir, "ne_110m_admin_0_countries.shp")
         world = gpd.read_file(shp_path)
 
@@ -127,7 +179,6 @@ def generate_continent_map(country_name: str, continent: str) -> bytes:
         "Oceania": "Oceania",
     }
     gpd_continent = continent_map.get(continent, continent)
-
     continent_gdf = world[world["CONTINENT"] == gpd_continent].copy()
 
     continent_gdf["_match"] = continent_gdf["NAME"].apply(
@@ -163,9 +214,7 @@ def generate_continent_map(country_name: str, continent: str) -> bytes:
 # ---------------------------------------------------------------------------
 def send_email(data: dict, map_png: bytes):
     today = date.today().strftime("%B %d, %Y")
-    subject = f"Dictator of the Day — {today}"
-
-    html_content = data["html"]
+    subject = f"{data['ruler_name']} — {today}"
     wikipedia_url = data.get("wikipedia_url", "")
 
     wiki_link = ""
@@ -203,7 +252,7 @@ def send_email(data: dict, map_png: bytes):
         </style>
     </head>
     <body>
-        {html_content}
+        {data['html']}
         {wiki_link}
         <div class="map-container">
             <img src="cid:continent_map" alt="Map of {data.get('country', '')}" />
@@ -217,7 +266,7 @@ def send_email(data: dict, map_png: bytes):
 
     msg = MIMEMultipart("related")
     msg["Subject"] = subject
-    msg["From"] = f"Dictator of the Day <{GMAIL_ADDRESS}>"
+    msg["From"]    = f"Dictator of the Day <{GMAIL_ADDRESS}>"
     msg["To"]      = RECIPIENT_EMAIL
 
     msg.attach(MIMEText(full_html, "html"))
@@ -238,13 +287,21 @@ def send_email(data: dict, map_png: bytes):
 # MAIN
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    print("Fetching sent dictators...")
+    sent, sha = get_sent_dictators()
+    print(f"  → {len(sent)} already sent")
+
     print("Generating content...")
-    data = generate_email_content()
-    print(f"  → {data.get('country')} ({data.get('continent')})")
+    data = generate_email_content(sent)
+    print(f"  → {data.get('ruler_name')} ({data.get('country')})")
 
     print("Generating map...")
     map_png = generate_continent_map(data["country"], data["continent"])
 
     print("Sending email...")
     send_email(data, map_png)
+
+    print("Saving to sent list...")
+    sent.append(data["ruler_name"])
+    save_sent_dictators(sent, sha)
     print("Done.")
