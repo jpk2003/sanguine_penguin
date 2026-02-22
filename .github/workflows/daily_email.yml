@@ -9,6 +9,9 @@ on:
   # Lets you trigger manually from the GitHub Actions tab (great for testing)
   workflow_dispatch:
 
+permissions:
+  contents: write
+  
 jobs:
   send-email:
     runs-on: ubuntu-latest
