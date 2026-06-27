@@ -147,10 +147,15 @@ def generate_email_content(sent: list) -> dict:
         messages=[{"role": "user", "content": USER_PROMPT + exclusion}]
     )
 
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
+# Sanitize LLM response before parsing
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1]
+        raw = raw.rsplit("```", 1)[0]
+    start = raw.index("{")
+    end = raw.rindex("}") + 1
+    raw = raw[start:end]
     return json.loads(raw)
 
 
