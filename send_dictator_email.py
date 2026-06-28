@@ -147,9 +147,8 @@ def generate_email_content(sent: list) -> dict:
         messages=[{"role": "user", "content": USER_PROMPT + exclusion}]
     )
 
-
-# Sanitize LLM response before parsing
-    raw = raw.strip()
+    raw = message.content[0].text.strip()
+    # Sanitize LLM response before parsing
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1]
         raw = raw.rsplit("```", 1)[0]
