@@ -153,9 +153,9 @@ def generate_email_content(sent: list) -> dict:
         raw = raw.split("\n", 1)[1]
         raw = raw.rsplit("```", 1)[0]
     start = raw.index("{")
-    end = raw.rindex("}") + 1
-    raw = raw[start:end]
-    return json.loads(raw)
+    decoder = json.JSONDecoder()
+    result, _ = decoder.raw_decode(raw, start)
+    return result
 
 
 # ---------------------------------------------------------------------------
